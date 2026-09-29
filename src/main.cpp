@@ -4,7 +4,6 @@
 #include "settings/Settings.h"
 #include "swap/RaceSwapDatabase.h"
 #include "MergeMapperPluginAPI.h"
-#include "swap/RaceSwapDatabase.h"
 #include "Papyrus.h"
 
 void MessageInterface(SKSE::MessagingInterface::Message* msg) {
@@ -72,11 +71,15 @@ void InitializeLog()
 
 extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() {
 	SKSE::PluginVersionData v;
-	v.PluginVersion(Version::MAJOR);
+	v.PluginVersion(REL::Version{
+		static_cast<std::uint16_t>(Version::MAJOR),
+		static_cast<std::uint16_t>(Version::MINOR),
+		static_cast<std::uint16_t>(Version::PATCH),
+		0 });
 	v.PluginName("RaceSwapper");
 	v.AuthorName("Nightfallstorm and Hanotak");
-	v.UsesNoStructs();
-	v.UsesAddressLibrary();
+	v.CompatibleVersions({ SKSE::RUNTIME_SSE_1_7_104 });
+	v.MinimumRequiredXSEVersion(REL::Version{ 2, 3, 1, 0 });
 
 	return v;
 }();
@@ -85,20 +88,36 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a
 {
 	a_info->infoVersion = SKSE::PluginInfo::kVersion;
 	a_info->name = Version::PROJECT.data();
-	a_info->version = Version::MAJOR;
+	a_info->version = static_cast<std::uint32_t>(Version::MAJOR);
 
 	return true;
 }
 
 extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
-	SKSE::Init(a_skse);
+	SKSE::Init(a_skse, { .log = false, .trampoline = true, .trampolineSize = 1024 });
 	Settings::GetSingleton()->Load();
 	InitializeLog();
+
+	constexpr auto supportedRuntime = SKSE::RUNTIME_SSE_1_7_104;
+	const auto runtime = REL::Module::get().version();
+	if (runtime != supportedRuntime) {
+		logger::critical(
+			"Unsupported Skyrim runtime {}. This build supports Steam 1.7.104.0 only.",
+			runtime.string());
+		return false;
+	}
+
 	auto messaging = SKSE::GetMessagingInterface();
-	messaging->RegisterListener(MessageInterface);
+	if (!messaging || !messaging->RegisterListener(MessageInterface)) {
+		logger::critical("Failed to register the SKSE messaging listener");
+		return false;
+	}
 	auto papyrusInterface = SKSE::GetPapyrusInterface();
-	papyrusInterface->Register(Papyrus::Bind);
+	if (!papyrusInterface || !papyrusInterface->Register(Papyrus::Bind)) {
+		logger::critical("Failed to register Papyrus functions");
+		return false;
+	}
 	logger::info("Loaded Plugin");
 	return true;
 }

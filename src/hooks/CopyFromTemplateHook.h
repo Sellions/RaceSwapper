@@ -15,6 +15,10 @@ struct CopyFromTemplate
 
 		// Remove any existing appearance data
 		// Since this NPC is being copied from a template, we are treating this NPC as brand new
+		if (const auto appearance = NPCAppearance::GetNPCAppearance(NPC);
+			appearance && appearance->isNPCSwapped) {
+			appearance->RevertNewAppearance();
+		}
 		NPCAppearance::EraseNPCAppearance(NPC);
 
 		func(a_self, a_template);
@@ -39,7 +43,7 @@ struct CopyFromTemplate
 	// Install our hook at the specified address
 	static inline void Install()
 	{
-		stl::write_vfunc<RE::TESNPC, 1, CopyFromTemplate>();
+		stl::write_vfunc<RE::TESNPC, 1, CopyFromTemplate>(REL::ID(24720), "TESNPC::CopyFromTemplate");
 
 		logger::info("CopyFromTemplate hook set");
 	}

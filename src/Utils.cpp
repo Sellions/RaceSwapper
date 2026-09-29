@@ -1,4 +1,5 @@
 #include "Utils.h"
+#include "DeterministicRandom.h"
 #include "PCH.h"
 #include "settings/Settings.h"
 
@@ -6,6 +7,23 @@
 
 namespace utils
 {
+	RE::TESNPC::Layer* AllocateTintLayer()
+	{
+		return RE::calloc<RE::TESNPC::Layer>(1, kTintLayerRuntimeSize);
+	}
+
+	void FreeTintLayers(RE::BSTArray<RE::TESNPC::Layer*>*& a_tintLayers)
+	{
+		if (!a_tintLayers) {
+			return;
+		}
+		for (auto* layer : *a_tintLayers) {
+			RE::free(layer);
+		}
+		delete a_tintLayers;
+		a_tintLayers = nullptr;
+	}
+
 	std::string UniqueStringFromForm(RE::TESForm* a_form_seed)
 	{
 		if (!a_form_seed) {
@@ -13,18 +31,21 @@ namespace utils
 		}
 
 		auto fileName = "DynamicForm";
-		if (!a_form_seed->IsDynamicForm()) {
-			fileName = a_form_seed->GetFile()->fileName;
+		const auto file = a_form_seed->GetFile();
+		if (!a_form_seed->IsDynamicForm() && file) {
+			fileName = file->fileName;
 		}
 
 		auto rawFormID = std::to_string(a_form_seed->GetFormID() & 0x00FFFFFF);
-		if (!a_form_seed->IsDynamicForm() && a_form_seed->GetFile()->IsLight()) {
+		if (!a_form_seed->IsDynamicForm() && file && file->IsLight()) {
 			rawFormID = std::to_string(a_form_seed->GetFormID() & 0x00000FFF);
 		}
 
 		std::string playthroughID = "";
 		if (Settings::GetSingleton()->features.any(Settings::Features::kPlaythroughRandomization)) {
-			playthroughID = std::to_string(RE::BGSSaveLoadManager::GetSingleton()->currentPlayerID);
+			if (const auto manager = RE::BGSSaveLoadManager::GetSingleton()) {
+				playthroughID = std::to_string(manager->currentPlayerID);
+			}
 		}
 
 		return rawFormID + "_" + fileName + "_" + playthroughID;
@@ -32,20 +53,19 @@ namespace utils
 
 	size_t HashForm(RE::TESForm* a_form_seed)
 	{
-		std::string data = UniqueStringFromForm(a_form_seed);
+		return static_cast<std::size_t>(HashString(UniqueStringFromForm(a_form_seed)));
+	}
 
-		long p = 16777619;
-		size_t hash = 2166136261L;
-		for (int i = 0; i < data.length(); i++) {
-			hash = (hash ^ data[i]) * p;
-			hash += hash << 13;
-			hash ^= hash >> 7;
-			hash += hash << 3;
-			hash ^= hash << 17;
-			hash += hash >> 5;
-		}
+	std::uint64_t HashString(std::string_view a_value)
+	{
+		return deterministic_random::HashString(a_value);
+	}
 
-		return hash;
+	std::uint64_t StableRandom(std::uint64_t a_seed, std::uint64_t a_stream)
+	{
+		// SplitMix64 is deterministic, local, and does not disturb the game's global
+		// C random-number state.
+		return deterministic_random::Generate(a_seed, a_stream);
 	}
 
 	RE::BSTArray<RE::TESNPC::Layer*>* CopyTintLayers(RE::BSTArray<RE::TESNPC::Layer*>* a_tintLayers)
@@ -53,11 +73,17 @@ namespace utils
 		if (!a_tintLayers) {
 			return nullptr;
 		}
-		auto copiedTintLayers = RE::calloc<RE::BSTArray<RE::TESNPC::Layer*>>(1);
+		auto copiedTintLayers = new RE::BSTArray<RE::TESNPC::Layer*>();
 
 		if (!a_tintLayers->empty()) {
 			for (auto tint : *a_tintLayers) {
-				auto newLayer = RE::calloc<RE::TESNPC::Layer>(1);
+				if (!tint) {
+					continue;
+				}
+				auto newLayer = AllocateTintLayer();
+				if (!newLayer) {
+					continue;
+				}
 				newLayer->tintColor = tint->tintColor;
 				newLayer->tintIndex = tint->tintIndex;
 				newLayer->preset = tint->preset;
@@ -72,6 +98,9 @@ namespace utils
 	RE::TESNPC::HeadRelatedData* CopyHeadRelatedData(RE::TESNPC::HeadRelatedData* a_data)
 	{
 		auto newHeadData = RE::calloc<RE::TESNPC::HeadRelatedData>(1);
+		if (!newHeadData) {
+			stl::report_and_fail("RaceSwapper could not allocate NPC head data.");
+		}
 		if (a_data) {
 			newHeadData->hairColor = a_data->hairColor;
 			newHeadData->faceDetails = a_data->faceDetails;
@@ -81,10 +110,13 @@ namespace utils
 
 	RE::BGSHeadPart** CopyHeadParts(RE::BGSHeadPart** a_parts, std::uint32_t a_numHeadParts)
 	{
-		if (!a_parts) {
+		if (!a_parts || a_numHeadParts == 0) {
 			return nullptr;
 		}
 		auto newHeadParts = RE::calloc<RE::BGSHeadPart*>(a_numHeadParts);
+		if (!newHeadParts) {
+			stl::report_and_fail("RaceSwapper could not allocate NPC head parts.");
+		}
 		for (std::uint32_t index = 0; index < a_numHeadParts; index++) {
 			newHeadParts[index] = a_parts[index];
 		}
@@ -98,6 +130,9 @@ namespace utils
 		}
 
 		auto newFaceData = RE::calloc<RE::TESNPC::FaceData>(1);
+		if (!newFaceData) {
+			stl::report_and_fail("RaceSwapper could not allocate NPC face data.");
+		}
 
 		for (std::uint32_t i = 0; i < 19; i++) {
 			newFaceData->morphs[i] = a_faceData->morphs[i];
@@ -107,6 +142,21 @@ namespace utils
 			newFaceData->parts[i] = a_faceData->parts[i];
 		}
 		return newFaceData;
+	}
+
+	RE::TESNPC* GetRootFaceNPCSafe(RE::TESNPC* a_npc)
+	{
+		std::unordered_set<RE::TESNPC*> visited;
+		for (auto* current = a_npc; current; current = current->faceNPC) {
+			if (!visited.insert(current).second) {
+				logger::error("Cyclic face-NPC template chain detected at {:x}", current->formID);
+				return nullptr;
+			}
+			if (!current->faceNPC) {
+				return current;
+			}
+		}
+		return nullptr;
 	}
 
 	std::vector<std::string> split_string(std::string& a_string, char a_delimiter)
@@ -129,7 +179,9 @@ namespace utils
 		static auto tweaks = GetModuleHandle(L"po3_Tweaks");
 		static auto function = reinterpret_cast<_GetFormEditorID>(GetProcAddress(tweaks, "GetFormEditorID"));
 		if (function) {
-			return function(a_formID);
+			if (const auto editorID = function(a_formID)) {
+				return editorID;
+			}
 		}
 		return {};
 	}
@@ -178,24 +230,23 @@ namespace utils
 
 	RE::TESRace* GetValidRaceForArmorRecursive(RE::TESObjectARMO* a_armor, RE::TESRace* a_race)
 	{
-		if (a_race == nullptr || a_armor == nullptr) {
+		if (!a_armor) {
 			return nullptr;
 		}
-		bool isValidRace = false;
-		for (auto addon : a_armor->armorAddons) {
-			if (addon && (addon->race == a_race || is_amongst(addon->additionalRaces, a_race))) {
-				isValidRace = true;
-				break;
+		std::unordered_set<RE::TESRace*> visited;
+		for (auto race = a_race; race && visited.insert(race).second; race = race->armorParentRace) {
+			for (auto addon : a_armor->armorAddons) {
+				if (addon && (addon->race == race || is_amongst(addon->additionalRaces, race))) {
+					return race;
+				}
 			}
 		}
-
-		return isValidRace ? a_race : GetValidRaceForArmorRecursive(a_armor, a_race->armorParentRace);
+		return nullptr;
 	}
 
 	bool IsVampire(RE::TESNPC* a_npc)
 	{
-		auto currentRace = a_npc->race;
-		return currentRace->HasKeywordID(0xA82BB);  // Vampire keyword
+		return a_npc && a_npc->race && a_npc->race->HasKeywordID(0xA82BB);  // Vampire keyword
 	}
 
 	static inline std::map<RE::TESRace*, RE::TESRace*> GetRaceCompatibilityMap(bool isVampireKey)
@@ -203,6 +254,9 @@ namespace utils
 		std::map<RE::TESRace*, RE::TESRace*> raceMap;
 
 		auto dataHandler = RE::TESDataHandler::GetSingleton();
+		if (!dataHandler) {
+			return raceMap;
+		}
 		RE::BGSListForm* raceList = nullptr;
 		RE::BGSListForm* raceVampireList = nullptr;
 
@@ -222,8 +276,8 @@ namespace utils
 		auto valueList = isVampireKey ? raceList : raceVampireList;
 
 		for (std::uint32_t i = 0; i < raceList->forms.size(); i++) {
-			auto key = keyList->forms[i]->As<RE::TESRace>();
-			auto value = valueList->forms[i]->As<RE::TESRace>();
+			auto key = keyList->forms[i] ? keyList->forms[i]->As<RE::TESRace>() : nullptr;
+			auto value = valueList->forms[i] ? valueList->forms[i]->As<RE::TESRace>() : nullptr;
 			if (key && value) {
 				raceMap.emplace(key, value);
 			}
@@ -234,20 +288,27 @@ namespace utils
 			return raceMap;
 		}
 
-		RE::TESForm::GetAllForms().second.get().LockForRead();
-
 		auto keyFormList = keyList->scriptAddedTempForms;
 		auto valueFormList = valueList->scriptAddedTempForms;
 
-		for (std::uint32_t i = 0; i < raceList->scriptAddedFormCount; i++) {
-			auto key = RE::TESForm::LookupByID<RE::TESRace>((*keyFormList)[i]);
-			auto value = RE::TESForm::LookupByID<RE::TESRace>((*valueFormList)[i]);
+		const auto& [allForms, allFormsLock] = RE::TESForm::GetAllForms();
+		if (!allForms) {
+			return raceMap;
+		}
+		const RE::BSReadLockGuard lock{ allFormsLock };
+		auto lookupRace = [&](RE::FormID a_formID) {
+			const auto found = allForms->find(a_formID);
+			return found != allForms->end() && found->second ? found->second->As<RE::TESRace>() : nullptr;
+		};
+
+		const auto count = std::min({ raceList->scriptAddedFormCount, keyFormList->size(), valueFormList->size() });
+		for (std::uint32_t i = 0; i < count; i++) {
+			auto key = lookupRace((*keyFormList)[i]);
+			auto value = lookupRace((*valueFormList)[i]);
 			if (key && value) {
 				raceMap.emplace(key, value);
 			}
 		}
-
-		RE::TESForm::GetAllForms().second.get().UnlockForRead();
 
 		return raceMap;
 	}
@@ -305,10 +366,11 @@ namespace utils
 		if (!a_race) {
 			return false;
 		}
-		RE::FormID werewolfRaceID = 0xCDD84;
-		RE::FormID vampireRaceID = RE::TESDataHandler().GetSingleton()->LookupFormID(0x283A, "Dawnguard.esm");
-		RE::TESRace* werewolfRace = RE::TESForm::LookupByID(werewolfRaceID)->As<RE::TESRace>();
-		RE::TESRace* vampireRace = RE::TESForm::LookupByID(vampireRaceID)->As<RE::TESRace>();
-		return a_race->formID == werewolfRace->formID || a_race->formID == vampireRace->formID;
+		if (a_race->formID == 0xCDD84) {
+			return true;
+		}
+		const auto dataHandler = RE::TESDataHandler::GetSingleton();
+		const auto vampireRace = dataHandler ? dataHandler->LookupForm<RE::TESRace>(0x283A, "Dawnguard.esm") : nullptr;
+		return vampireRace && a_race == vampireRace;
 	}
 }

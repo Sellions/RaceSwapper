@@ -1,34 +1,88 @@
 # Race Swapper
 
-SKSE Plugin to dynamically swap races of NPCs on certain conditions.
+SKSE plugin that dynamically swaps NPC races, sex, and appearance data from
+configuration rules.
 
-## Requirements
-* [CMake](https://cmake.org/)
-	* Add this to your `PATH`
-* [PowerShell](https://github.com/PowerShell/PowerShell/releases/latest)
-* [Vcpkg](https://github.com/microsoft/vcpkg)
-	* Add the environment variable `VCPKG_ROOT` with the value as the path to the folder containing vcpkg
-* [Visual Studio Community 2019](https://visualstudio.microsoft.com/)
-	* Desktop development with C++
+## Steam 1.7.104 port status
 
-## User Requirements
-* [Address Library for SKSE](https://www.nexusmods.com/skyrimspecialedition/mods/32444)
-	* Needed for SSE
-* [VR Address Library for SKSEVR](https://www.nexusmods.com/skyrimspecialedition/mods/58101)
-	* Needed for VR
+Version **1.6.0** is a source port for the exact Steam runtime
+**SkyrimSE 1.7.104.0**. The native calls, overwrite bytes, vtable entries, and
+the game's 12-byte tint-layer allocation were checked against the supplied
+1.7.104 executable and matching Address Library database. Every native patch
+also validates the expected instructions at startup and aborts instead of
+patching an unknown executable.
 
-## Register Visual Studio as a Generator
-* Open `x64 Native Tools Command Prompt`
-* Run `cmake`
-* Close the cmd window
+This workspace could not produce a Windows DLL or launch Skyrim because it has
+no MSVC/Windows SDK or game runtime. Treat the port as ready for a Windows build
+and in-game validation, not as a tested binary release. See
+[COMPATIBILITY_REVIEW.md](COMPATIBILITY_REVIEW.md) for the evidence and remaining
+test checklist.
 
-## Building
-```
-git clone https://github.com/Nightfallstorm/RaceSwapper
+This build intentionally supports neither **Dynamic Armor Variants** nor
+**Devious Devices NG**. It fails fast if either DLL is detected. The ordinary
+armor path remains enabled; users who do not install those mods are unaffected.
+
+## Runtime requirements
+
+- Steam Skyrim Special Edition **1.7.104.0**
+- SKSE **2.3.1**
+- Address Library file `versionlib-1-7-104-0.bin`
+- powerofthree's Tweaks, used to resolve editor IDs in configurations
+
+Other Skyrim runtimes, GOG/Epic builds, Skyrim VR, Dynamic Armor Variants, and
+Devious Devices NG are not supported by this branch.
+
+## Build requirements
+
+- Visual Studio 2022 with the **Desktop development with C++** workload
+- CMake 3.22 or newer
+- Git with recursive submodule support
+- vcpkg checked out at manifest baseline
+  `ee12231b20c95013c6638d845d04c91559a1d1ff`
+- `VCPKG_ROOT` set to the directory containing
+  `scripts/buildsystems/vcpkg.cmake`
+
+The source pins CommonLibSSE-NG 9.2.0 and builds AE support only.
+
+## Build and stage a package
+
+```powershell
+git clone --recurse-submodules https://github.com/Nightfallstorm/RaceSwapper
 cd RaceSwapper
 cmake --preset RaceSwapper
-cmake --build build --config Release
+cmake --build build --config Release --parallel
+cmake --install build --config Release --prefix staging
+```
+
+The staged plugin is
+`staging/Data/SKSE/Plugins/RaceSwapper.dll`. The install step also includes the
+license and review notes. The checked-in
+[`build-steam-1-7-104.yml`](.github/workflows/build-steam-1-7-104.yml) workflow
+runs the portable checks, builds on Windows Server 2022, and creates a ZIP plus
+SHA-256 file after the branch is pushed to GitHub.
+
+## Offline checks
+
+Portable configuration, weighted-selection, and deterministic-RNG regressions:
+
+```sh
+mkdir -p build-review
+g++ -std=c++23 -Wall -Wextra -Werror -pedantic \
+  -fsanitize=undefined -fno-sanitize-recover=all \
+  -Isrc tests/portable_regressions.cpp \
+  -o build-review/portable_regressions
+./build-review/portable_regressions
+```
+
+Exact 1.7.104 runtime audit (the two runtime files are inputs only and must not
+be committed or redistributed):
+
+```sh
+python3 tools/verify_runtime_1_7_104.py \
+  /path/to/SkyrimSE.exe \
+  /path/to/versionlib-1-7-104-0.bin
 ```
 
 ## License
+
 [GPL-3.0](LICENSE)

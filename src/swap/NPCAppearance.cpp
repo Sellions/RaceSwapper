@@ -8,15 +8,19 @@
 #include "Utils.h"
 
 static void UpdateLoadedActors(RE::TESNPC* a_npc) {
-	for (auto actorHandle : RE::ProcessLists::GetSingleton()->highActorHandles) {
-		RE::Actor* actor = actorHandle.get().get();
-		if (actor && actor->GetActorBase() == a_npc && actor->Is3DLoaded()) {
+	const auto processes = RE::ProcessLists::GetSingleton();
+	if (!processes) {
+		return;
+	}
+	for (auto actorHandle : processes->highActorHandles) {
+		const auto actor = actorHandle.get();
+		if (actor && actor->GetActorBase() == a_npc && actor->Is3DLoaded() && actor->GetActorRuntimeData().currentProcess) {
 			logger::info("Updated loaded actor {:x} NPC {}{:x}",
 				actor->formID,
 				utils::GetFormEditorID(a_npc),
 				a_npc->formID
 			);
-			actor->GetActorRuntimeData().currentProcess->Update3DModel(actor);
+			actor->GetActorRuntimeData().currentProcess->Update3DModel(actor.get());
 		}
 	}
 }
@@ -28,11 +32,12 @@ bool NPCAppearance::ApplyNewAppearance(bool updateLoadedActors)
 	}
 
 	ApplyAppearance(&alteredNPCData);
+	// A model refresh can re-enter the appearance hooks.
+	isNPCSwapped = true;
 	if (updateLoadedActors) {
 		UpdateLoadedActors(npc);
 	}
 	
-	isNPCSwapped = true;
 	return true;
 }
 
@@ -43,16 +48,21 @@ bool NPCAppearance::RevertNewAppearance(bool updateLoadedActors)
 	}
 
 	ApplyAppearance(&originalNPCData);
+	isNPCSwapped = false;
 	if (updateLoadedActors) {
+		const auto wasDisabled = isSwapDisabled;
+		isSwapDisabled = true;  // LoadSkinHook must not reapply during this refresh.
+		const stl::scope_exit restoreDisabled([&]() { isSwapDisabled = wasDisabled; });
 		UpdateLoadedActors(npc);
 	}
 
-	isNPCSwapped = false;
 	return true;
 }
 
 void NPCAppearance::ApplyAppearance(NPCData* a_data)
 {
+	ReleasePreviousAppliedAllocations();
+
 	npc->height = a_data->height;
 	npc->weight = a_data->weight;
 	if (a_data->sex == RE::SEX::kFemale) {
@@ -68,11 +78,8 @@ void NPCAppearance::ApplyAppearance(NPCData* a_data)
 	// faceRelatedData applied from hooks for race
 	// isBeastRace keyword applied from hooks for race
 
-	if (npc->tintLayers) {
-		npc->tintLayers->clear();
-	}
-
 	npc->tintLayers = utils::CopyTintLayers(a_data->tintLayers);
+	appliedAllocations.tintLayers = npc->tintLayers;
 
 	npc->faceNPC = a_data->faceNPC;
 	if (npc->faceNPC == npc) {
@@ -80,12 +87,38 @@ void NPCAppearance::ApplyAppearance(NPCData* a_data)
 	}
 
 	npc->headRelatedData = utils::CopyHeadRelatedData(a_data->headRelatedData);
+	appliedAllocations.headRelatedData = npc->headRelatedData;
 
-	npc->numHeadParts = a_data->numHeadParts;
+	npc->numHeadParts = static_cast<std::int8_t>(a_data->numHeadParts);
 	npc->headParts = utils::CopyHeadParts(a_data->headParts, a_data->numHeadParts);
+	appliedAllocations.headParts = npc->headParts;
 
 	// TODO: Check for default face struct here?
 	npc->faceData = utils::DeepCopyFaceData(a_data->faceData);
+	appliedAllocations.faceData = npc->faceData;
+}
+
+void NPCAppearance::ReleasePreviousAppliedAllocations()
+{
+	// The original game data may use shared/static storage, so only release buffers
+	// that this instance installed and that the NPC still points at.
+	if (appliedAllocations.tintLayers && npc->tintLayers == appliedAllocations.tintLayers) {
+		utils::FreeTintLayers(npc->tintLayers);
+	}
+	if (appliedAllocations.headRelatedData && npc->headRelatedData == appliedAllocations.headRelatedData) {
+		RE::free(npc->headRelatedData);
+		npc->headRelatedData = nullptr;
+	}
+	if (appliedAllocations.headParts && npc->headParts == appliedAllocations.headParts) {
+		RE::free(npc->headParts);
+		npc->headParts = nullptr;
+		npc->numHeadParts = 0;
+	}
+	if (appliedAllocations.faceData && npc->faceData == appliedAllocations.faceData) {
+		RE::free(npc->faceData);
+		npc->faceData = nullptr;
+	}
+	appliedAllocations = {};
 }
 
 void NPCAppearance::InitializeNPCData(NPCData* a_data)
@@ -119,20 +152,25 @@ void NPCAppearance::InitializeNPCData(NPCData* a_data)
 
 void NPCAppearance::CopyFaceData(NPCData* a_data)
 {
-	auto memoryManager = RE::MemoryManager::GetSingleton();
-
-	if (a_data->headRelatedData) {
-		memoryManager->Deallocate(a_data->headRelatedData, 0);
+	auto* faceSource = utils::GetRootFaceNPCSafe(a_data->faceNPC);
+	if (!faceSource || !faceSource->race) {
+		faceSource = npc;
 	}
-	a_data->headRelatedData = utils::CopyHeadRelatedData(a_data->faceNPC->headRelatedData);
 
-	a_data->numHeadParts = a_data->faceNPC->numHeadParts;
-	a_data->headParts = utils::CopyHeadParts(a_data->faceNPC->headParts, a_data->faceNPC->numHeadParts);
+	RE::free(a_data->headRelatedData);
+	a_data->headRelatedData = utils::CopyHeadRelatedData(faceSource->headRelatedData);
+
+	RE::free(a_data->headParts);
+	a_data->numHeadParts = faceSource->numHeadParts > 0 ?
+	                           static_cast<std::uint8_t>(faceSource->numHeadParts) :
+	                           0;
+	a_data->headParts = utils::CopyHeadParts(faceSource->headParts, a_data->numHeadParts);
 
 	// TODO: Check for default face struct here?
-	a_data->faceData = utils::DeepCopyFaceData(a_data->faceNPC->faceData);
+	RE::free(a_data->faceData);
+	a_data->faceData = utils::DeepCopyFaceData(faceSource->faceData);
 
-	a_data->faceRelatedData = a_data->faceNPC->race->faceRelatedData[npc->GetSex()];
+	a_data->faceRelatedData = faceSource->race->faceRelatedData[npc->GetSex()];
 }
 
 void NPCAppearance::SetupNewAppearance() {
@@ -142,30 +180,33 @@ void NPCAppearance::SetupNewAppearance() {
 	// TODO add more swaps here
 }
 
-NPCAppearance::NPCAppearance(RE::TESNPC* a_npc, AppearanceConfiguration* a_config)
+
+NPCAppearance::NPCAppearance(
+	RE::TESNPC* a_npc,
+	std::unique_ptr<AppearanceConfiguration> a_config) :
+	npc(a_npc),
+	config(std::move(a_config))
 {
-	this->npc = a_npc;
-	this->config = a_config;
 	logger::info("	Creating new NPC data");
-	InitializeNPCData(&this->originalNPCData);
-	InitializeNPCData(&this->alteredNPCData);
+	InitializeNPCData(&originalNPCData);
+	InitializeNPCData(&alteredNPCData);
 	logger::info("	Setting up appearance");
 	SetupNewAppearance();
 }
 
-void ClearNPCAppearanceData(NPCAppearance::NPCData a_data) {
+static void ClearNPCAppearanceData(NPCAppearance::NPCData& a_data) {
 	RE::free(a_data.faceData);
+	a_data.faceData = nullptr;
 	RE::free(a_data.headParts);
+	a_data.headParts = nullptr;
+	a_data.numHeadParts = 0;
 	RE::free(a_data.headRelatedData);
-	if (a_data.tintLayers) {
-		for (auto layer : *a_data.tintLayers) {
-			RE::free(layer);
-		}
-	}
-	RE::free(a_data.tintLayers);	
+	a_data.headRelatedData = nullptr;
+	utils::FreeTintLayers(a_data.tintLayers);
 }
 
-void NPCAppearance::dtor() {
+NPCAppearance::~NPCAppearance()
+{
 	ClearNPCAppearanceData(alteredNPCData);
 	ClearNPCAppearanceData(originalNPCData);
 }
@@ -180,15 +221,17 @@ static bool IsNPCValid(RE::TESNPC* a_npc)
 }
 
 // Gets or create a new NPC appearance. Will be null if NPC has no altered appearance to take
-NPCAppearance* NPCAppearance::GetOrCreateNPCAppearance(RE::TESNPC* a_npc) {
-	auto faceNPC = a_npc->GetRootFaceNPC();
+NPCAppearance::Ptr NPCAppearance::GetOrCreateNPCAppearance(RE::TESNPC* a_npc) {
 	if (!IsNPCValid(a_npc)) {
 		return nullptr;
 	}
-	appearanceMapLock.lock();
-	if (appearanceMap.contains(a_npc->formID)) {
-		appearanceMapLock.unlock();
-		return appearanceMap.at(a_npc->formID);
+	auto faceNPC = utils::GetRootFaceNPCSafe(a_npc);
+	if (!faceNPC || !faceNPC->race) {
+		return nullptr;
+	}
+	const std::lock_guard lock(appearanceMapLock);
+	if (const auto found = appearanceMap.find(a_npc->formID); found != appearanceMap.end()) {
+		return found->second;
 	}
 
 	// Template actors are based on a face NPC. Always use face NPC as original appearance to get configuration for
@@ -196,71 +239,42 @@ NPCAppearance* NPCAppearance::GetOrCreateNPCAppearance(RE::TESNPC* a_npc) {
 
 	if (config == nullptr) {
 		logger::debug("No appearance config for {:x} face NPC: {:x}", a_npc->formID, faceNPC->formID);
-		appearanceMapLock.unlock();
 		return nullptr;
 	}
 
 	logger::debug("NPC {:x} matched entry \"{}\" from file \"{}\"", a_npc->formID, config->entry, config->file);
 	logger::info("Creating new appearance for {:x}. Face NPC used for appearance: {:x}", a_npc->formID, faceNPC->formID);
-	NPCAppearance* appearance = new NPCAppearance(a_npc, config);
-	appearanceMap.insert(std::pair(a_npc->formID, appearance));
-	appearanceMapLock.unlock();
+	Ptr appearance(new NPCAppearance(a_npc, std::move(config)));
+	appearanceMap.emplace(a_npc->formID, appearance);
 	return appearance;
 };
 
 // Templated actors rely on the face NPC for swaps, so our appearance data will be based on the faceNPC as well
-NPCAppearance* NPCAppearance::GetNPCAppearance(RE::TESNPC* a_npc) {
-	appearanceMapLock.lock();
-	if (appearanceMap.contains(a_npc->formID)) {
-		appearanceMapLock.unlock();
-		return appearanceMap.at(a_npc->formID);
+NPCAppearance::Ptr NPCAppearance::GetNPCAppearance(RE::TESNPC* a_npc) {
+	if (!a_npc) {
+		return nullptr;
 	}
-	appearanceMapLock.unlock();
+	const std::lock_guard lock(appearanceMapLock);
+	if (const auto found = appearanceMap.find(a_npc->formID); found != appearanceMap.end()) {
+		return found->second;
+	}
 	return nullptr;
 };
 
 void NPCAppearance::EraseNPCAppearance(RE::TESNPC* a_npc) {
-	EraseNPCAppearance(a_npc->formID);
+	if (a_npc) {
+		EraseNPCAppearance(a_npc->formID);
+	}
 };
 
 void NPCAppearance::EraseNPCAppearance(RE::FormID a_formID)
 {
-	appearanceMapLock.lock();
-	if (appearanceMap.contains(a_formID)) {
-		auto appearance = appearanceMap.at(a_formID);
-		appearanceMap.erase(a_formID);
-		appearance->dtor();
-		delete appearance;
-		
+	Ptr removed;
+	{
+		const std::lock_guard lock(appearanceMapLock);
+		if (const auto found = appearanceMap.find(a_formID); found != appearanceMap.end()) {
+			removed = std::move(found->second);
+			appearanceMap.erase(found);
+		}
 	}
-	appearanceMapLock.unlock();
 };
-
-// Native Papyrus function version of enable
-static void ObjectReference__Enable(RE::TESObjectREFR* a_self, bool a_abFadeIn, bool a_wait, RE::BSScript::Internal::VirtualMachine* a_vm, RE::VMStackID a_stackID)
-{
-	using func_t = decltype(&ObjectReference__Enable);
-	REL::Relocation<func_t> func{ RELOCATION_ID(56038, 56158) };
-	return func(a_self, a_abFadeIn, a_wait, a_vm, a_stackID);
-}
-
-void ResetCharacter(RE::Character* a_refr)
-{
-	if (a_refr == nullptr) {
-		return;
-	}
-
-	RE::ObjectRefHandle origParentHandle;
-	RE::ExtraEnableStateParent* enableStateParent = nullptr;
-	// Remove enable state parent temporarily if it exists, so we can disable/enable freely to refresh the NPC
-	enableStateParent = a_refr->extraList.GetByType<RE::ExtraEnableStateParent>();
-	if (enableStateParent) {
-		origParentHandle = enableStateParent->parent;
-		enableStateParent->parent = RE::ObjectRefHandle();
-	}
-	a_refr->Disable();
-	ObjectReference__Enable(a_refr, false, false, RE::BSScript::Internal::VirtualMachine::GetSingleton(), 0);
-	if (enableStateParent) {
-		enableStateParent->parent = origParentHandle;
-	}
-}

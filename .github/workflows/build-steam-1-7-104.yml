@@ -1,0 +1,74 @@
+name: Build Steam 1.7.104
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - update/steam-1.7.104-audit
+
+permissions:
+  contents: read
+
+jobs:
+  portable-regressions:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Compile and run portable regressions
+        run: |
+          mkdir -p build-review
+          g++ -std=c++23 -Wall -Wextra -Werror -pedantic \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isrc tests/portable_regressions.cpp \
+            -o build-review/portable_regressions
+          ./build-review/portable_regressions
+
+      - name: Validate runtime verifier syntax
+        run: python3 -m py_compile tools/verify_runtime_1_7_104.py
+
+  windows-release:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      VCPKG_ROOT: ${{ runner.temp }}\vcpkg
+    steps:
+      - name: Check out source and dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Bootstrap pinned vcpkg
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
+          git -C "$env:VCPKG_ROOT" checkout ee12231b20c95013c6638d845d04c91559a1d1ff
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Configure Release
+        run: cmake --preset RaceSwapper
+
+      - name: Build Release
+        run: cmake --build build --config Release --parallel
+
+      - name: Stage mod package
+        run: cmake --install build --config Release --prefix staging
+
+      - name: Create archive and checksum
+        shell: pwsh
+        run: |
+          $archive = "RaceSwapper-1.6.0-Steam-1.7.104.zip"
+          Compress-Archive -Path "staging\*" -DestinationPath $archive
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content -Encoding ascii "$archive.sha256"
+
+      - name: Upload Release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: RaceSwapper-1.6.0-Steam-1.7.104
+          path: |
+            RaceSwapper-1.6.0-Steam-1.7.104.zip
+            RaceSwapper-1.6.0-Steam-1.7.104.zip.sha256
+          if-no-files-found: error

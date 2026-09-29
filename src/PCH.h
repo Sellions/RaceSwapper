@@ -43,6 +43,55 @@ namespace stl
 {
 	using namespace SKSE::stl;
 
+	[[noreturn]] inline void patch_mismatch(std::string_view a_name, std::uintptr_t a_address)
+	{
+		auto message = fmt::format(
+			"RaceSwapper refused to install the '{}' hook because SkyrimSE.exe does not match the verified Steam 1.7.104 instructions at 0x{:X}.",
+			a_name,
+			a_address);
+		logger::critical("{}", message);
+		report_and_fail(message);
+	}
+
+	inline void require_bytes(
+		std::uintptr_t a_address,
+		std::initializer_list<std::uint8_t> a_expected,
+		std::string_view a_name)
+	{
+		const auto* actual = reinterpret_cast<const std::uint8_t*>(a_address);
+		if (!std::equal(a_expected.begin(), a_expected.end(), actual)) {
+			patch_mismatch(a_name, a_address);
+		}
+	}
+
+	inline void require_address(
+		std::uintptr_t a_actual,
+		std::uintptr_t a_expected,
+		std::string_view a_name,
+		std::uintptr_t a_patchAddress)
+	{
+		if (a_actual != a_expected) {
+			logger::critical(
+				"Hook '{}' expected target 0x{:X}, but found 0x{:X}",
+				a_name,
+				a_expected,
+				a_actual);
+			patch_mismatch(a_name, a_patchAddress);
+		}
+	}
+
+	inline void require_call(std::uintptr_t a_address, REL::ID a_expected, std::string_view a_name)
+	{
+		require_bytes(a_address, { 0xE8 }, a_name);
+
+		std::int32_t displacement = 0;
+		std::memcpy(std::addressof(displacement), reinterpret_cast<const void*>(a_address + 1), sizeof(displacement));
+		const auto actual = static_cast<std::uintptr_t>(
+			static_cast<std::intptr_t>(a_address + 5) + displacement);
+		const REL::Relocation<std::uintptr_t> expected{ a_expected };
+		require_address(actual, expected.address(), a_name, a_address);
+	}
+
 	void asm_replace(std::uintptr_t a_from, std::size_t a_size, std::uintptr_t a_to);
 
 	template <class T>
@@ -52,25 +101,27 @@ namespace stl
 	}
 
 	template <class T>
-	void write_thunk_call(std::uintptr_t a_src)
+	void write_thunk_call(std::uintptr_t a_src, REL::ID a_expected, std::string_view a_name)
 	{
+		require_call(a_src, a_expected, a_name);
 		auto& trampoline = SKSE::GetTrampoline();
-		SKSE::AllocTrampoline(14);
-
 		T::func = trampoline.write_call<5>(a_src, T::thunk);
 	}
 
 	template <class F, size_t offset, class T>
-	void write_vfunc()
+	void write_vfunc(REL::ID a_expected, std::string_view a_name)
 	{
 		REL::Relocation<std::uintptr_t> vtbl{ F::VTABLE[offset] };
+		const auto current = reinterpret_cast<const std::uintptr_t*>(vtbl.address())[T::idx];
+		const REL::Relocation<std::uintptr_t> expected{ a_expected };
+		require_address(current, expected.address(), a_name, vtbl.address() + T::idx * sizeof(std::uintptr_t));
 		T::func = vtbl.write_vfunc(T::idx, T::thunk);
 	}
 
 	template <class F, class T>
-	void write_vfunc()
+	void write_vfunc(REL::ID a_expected, std::string_view a_name)
 	{
-		write_vfunc<F, 0, T>();
+		write_vfunc<F, 0, T>(a_expected, a_name);
 	}
 
 	inline std::string as_string(std::string_view a_view)

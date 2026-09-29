@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 set(NAME "RaceSwapper")
-set(VERSION 1.5.8)
+set(VERSION 1.6.0)
 
 # ---- Cache build vars ----
 
@@ -64,9 +64,12 @@ endif()
 
 # ---- Globals ----
 
-add_compile_definitions(
-	SKSE_SUPPORT_XBYAK
-)
+set(ENABLE_SKYRIM_SE OFF CACHE BOOL "" FORCE)
+set(ENABLE_SKYRIM_AE ON CACHE BOOL "" FORCE)
+set(ENABLE_SKYRIM_VR OFF CACHE BOOL "" FORCE)
+set(SKSE_SUPPORT_XBYAK ON CACHE BOOL "" FORCE)
+set(SKSE_SUPPORT_PATCH_SAFETY OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 
 if (MSVC)
 	if (NOT ${CMAKE_GENERATOR} STREQUAL "Ninja")
@@ -92,6 +95,8 @@ else ()
 		"Variable ${CommonLibName}Path is not set."
 	)
 endif()
+
+find_path(SIMPLEINI_INCLUDE_DIRS "SimpleIni.h" REQUIRED)
 
 # ---- Add source files ----
 
@@ -129,7 +134,7 @@ add_library(
 target_compile_features(
 	${PROJECT_NAME}
 	PRIVATE
-		cxx_std_20
+		cxx_std_23
 )
 
 target_compile_definitions(
@@ -156,6 +161,19 @@ target_precompile_headers(
 	${PROJECT_NAME}
 	PRIVATE
 		src/PCH.h
+)
+
+install(
+	TARGETS ${PROJECT_NAME}
+	RUNTIME DESTINATION Data/SKSE/Plugins
+)
+
+install(
+	FILES
+		LICENSE
+		README.md
+		COMPATIBILITY_REVIEW.md
+	DESTINATION .
 )
 
 if (MSVC)

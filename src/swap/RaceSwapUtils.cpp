@@ -84,12 +84,12 @@ namespace raceutils
 
 		return likelihood;
 	}
-	std::vector<RE::BGSHeadPart*> MatchHDPTData(HDPTData dst, std::vector<HeadpartData> src_hdpts)
+	std::vector<RE::BGSHeadPart*> MatchHDPTData(HDPTData dst, const std::vector<HeadpartData>& src_hdpts)
 	{
 		std::map<_likelihood_t, std::vector<RE::BGSHeadPart*>> likelihood_map;
 
 		_likelihood_t max = 0;
-		for (int i = 0; i < src_hdpts.size(); i++) {
+		for (std::size_t i = 0; i < src_hdpts.size(); ++i) {
 			auto likelihood = _match(dst, *(src_hdpts[i].second));
 			if (likelihood > max)
 				max = likelihood;
@@ -128,7 +128,10 @@ namespace raceutils
 		return likelihood;
 	}
 
-	std::vector<RE::BGSTextureSet*> MatchSkinTextureData(SkinTextureData dst, std::vector<RE::BGSTextureSet*> src_hdpts, std::vector<SkinTextureData> src_data)
+	std::vector<RE::BGSTextureSet*> MatchSkinTextureData(
+		SkinTextureData dst,
+		const std::vector<RE::BGSTextureSet*>& src_hdpts,
+		const std::vector<SkinTextureData>& src_data)
 	{
 		if (src_hdpts.size() != src_data.size()) {
 			return std::vector<RE::BGSTextureSet*>();
@@ -137,7 +140,7 @@ namespace raceutils
 		std::map<_likelihood_t, std::vector<RE::BGSTextureSet*>> likelihood_map;
 
 		_likelihood_t max = 0;
-		for (int i = 0; i < src_data.size(); i++) {
+		for (std::size_t i = 0; i < src_data.size(); ++i) {
 			auto likelihood = _match(dst, src_data[i]);
 			if (likelihood > max)
 				max = likelihood;
@@ -176,6 +179,9 @@ namespace raceutils
 		int closestPresetMatch = 1000000;  // Closer to 0.0 is better
 		RE::Color origColor = a_colorForm->color;
 		for (auto colorForm : *a_colors) {
+			if (!colorForm) {
+				continue;
+			}
 			RE::Color currentColor = colorForm->color;
 
 			int currentPresetMatch = std::abs(origColor.blue - currentColor.blue) +
@@ -191,11 +197,14 @@ namespace raceutils
 		return closestColor;
 	}
 
-	std::uint16_t GetClosestPresetIdx(RE::Color a_color, RE::TESRace::FaceRelatedData::TintAsset::Presets a_presets)
+	std::optional<std::uint16_t> GetClosestPresetIdx(RE::Color a_color, const RE::TESRace::FaceRelatedData::TintAsset::Presets& a_presets)
 	{
-		std::uint16_t closestPresetIdx = 0;
+		std::optional<std::uint16_t> closestPresetIdx;
 		int closestPresetMatch = 1000000;  // Closer to 0.0 is better
-		for (std::uint16_t i = 0; i < a_presets.colors.size(); i++) {
+		for (std::uint32_t i = 0; i < a_presets.colors.size() && i <= 65535; i++) {
+			if (!a_presets.colors[i]) {
+				continue;
+			}
 			RE::Color currentColor = a_presets.colors[i]->color;
 
 			int currentPresetMatch = std::abs(a_color.blue - currentColor.blue) +
@@ -204,7 +213,7 @@ namespace raceutils
 
 			if (currentPresetMatch < closestPresetMatch) {
 				closestPresetMatch = currentPresetMatch;
-				closestPresetIdx = i;
+				closestPresetIdx = static_cast<std::uint16_t>(i);
 			}
 		}
 

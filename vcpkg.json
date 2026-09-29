@@ -1,23 +1,50 @@
 {
   "name": "raceswapper",
-  "version-string": "1.5.8",
+  "version-string": "1.6.0",
   "description": "Framework to dynamically swap appearances of NPCs at runtime",
   "homepage": "https://github.com/Nightfallstorm/RaceSwapper",
   "license": "GPL-3.0",
   "dependencies": [
-    "fmt",
-    "directxtk",
-    "rapidcsv",
-    "spdlog",
-    "xbyak",
-    "simpleini",
-    "catch2"
-  ],
-  "builtin-baseline": "417119555f155f6044dec7a379cd25466e339873",
-  "overrides": [
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
+    {
+      "name": "directxmath",
+      "version>=": "2025-04-03"
+    },
+    {
+      "name": "directxtk",
+      "version>=": "2025-10-27"
+    },
     {
       "name": "fmt",
-      "version": "8.0.1"
+      "version>=": "12.1.0"
+    },
+    {
+      "name": "nlohmann-json",
+      "version>=": "3.12.0"
+    },
+    {
+      "name": "rapidcsv",
+      "version>=": "8.90"
+    },
+    {
+      "name": "simpleini",
+      "version>=": "4.25"
+    },
+    {
+      "name": "spdlog",
+      "version>=": "1.16.0"
+    },
+    {
+      "name": "toml11",
+      "version>=": "4.4.0"
+    },
+    {
+      "name": "xbyak",
+      "version>=": "7.28"
     }
-  ]
+  ],
+  "builtin-baseline": "ee12231b20c95013c6638d845d04c91559a1d1ff"
 }

@@ -4,7 +4,7 @@
 #include "Utils.h"
 
 void NPCSwap::applySwap(NPCAppearance::NPCData* a_data, RE::TESNPC* a_otherNPC) {
-	if (!a_otherNPC || a_data->baseNPC == a_otherNPC) {
+	if (!a_otherNPC || !a_otherNPC->race || a_data->baseNPC == a_otherNPC) {
 		return;
 	}
 
@@ -13,7 +13,7 @@ void NPCSwap::applySwap(NPCAppearance::NPCData* a_data, RE::TESNPC* a_otherNPC) 
 	if (otherNPCAppearance && otherNPCAppearance->isNPCSwapped) {
 		// Keep original so we can apply original NPC data
 		otherNPCSwapped = true;
-		NPCAppearance::GetNPCAppearance(a_otherNPC)->RevertNewAppearance();
+		otherNPCAppearance->RevertNewAppearance();
 	}
 
 
@@ -35,28 +35,32 @@ void NPCSwap::applySwap(NPCAppearance::NPCData* a_data, RE::TESNPC* a_otherNPC) 
 	a_data->bodyTextureModel = &a_otherNPC->race->bodyTextureModels[a_otherNPC->GetSex()];
 	a_data->behaviorGraph = &a_otherNPC->race->behaviorGraphs[a_otherNPC->GetSex()];
 
-	if (a_data->tintLayers) {
-		a_data->tintLayers->clear();
-	}
-
+	utils::FreeTintLayers(a_data->tintLayers);
 	a_data->tintLayers = utils::CopyTintLayers(a_otherNPC->tintLayers);
 
 	a_data->faceNPC = a_otherNPC->faceNPC ? a_otherNPC->faceNPC : a_otherNPC;
+	auto* faceSource = utils::GetRootFaceNPCSafe(a_data->faceNPC);
+	if (!faceSource || !faceSource->race) {
+		faceSource = a_otherNPC;
+	}
+	a_data->faceRelatedData = faceSource->race->faceRelatedData[a_data->sex];
 
-	a_data->headRelatedData = utils::CopyHeadRelatedData(a_data->faceNPC->headRelatedData);
+	RE::free(a_data->headRelatedData);
+	a_data->headRelatedData = utils::CopyHeadRelatedData(faceSource->headRelatedData);
 
-	a_data->numHeadParts = a_otherNPC->numHeadParts;
-	a_data->headParts = utils::CopyHeadParts(a_data->faceNPC->headParts, a_data->faceNPC->numHeadParts);
+	RE::free(a_data->headParts);
+	a_data->numHeadParts = faceSource->numHeadParts > 0 ?
+	                           static_cast<std::uint8_t>(faceSource->numHeadParts) :
+	                           0;
+	a_data->headParts = utils::CopyHeadParts(faceSource->headParts, a_data->numHeadParts);
 
 	// TODO: Check for default face struct here?
-	
-	a_data->faceData = utils::DeepCopyFaceData(a_data->faceNPC->faceData);
+	RE::free(a_data->faceData);
+	a_data->faceData = utils::DeepCopyFaceData(faceSource->faceData);
 
 	if (otherNPCAppearance && otherNPCSwapped) {
-		otherNPCSwapped = true;
-		NPCAppearance::GetNPCAppearance(a_otherNPC)->ApplyNewAppearance();
+		otherNPCAppearance->ApplyNewAppearance();
 	}
 
 	logger::info("Swap complete!");
 }
-

@@ -18,7 +18,7 @@ struct DtorNPC
 	// Install our hook at the specified address
 	static inline void Install()
 	{
-		stl::write_vfunc<RE::TESNPC, 0, DtorNPC>();
+		stl::write_vfunc<RE::TESNPC, 0, DtorNPC>(REL::ID(24888), "TESNPC destructor");
 
 		logger::info("DtorNPC hook set");
 	}

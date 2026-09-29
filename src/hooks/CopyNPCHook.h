@@ -7,13 +7,16 @@ struct CopyNPC
 	// Maintain Swapper data when copying data between NPCs
 	static void thunk(RE::TESNPC* a_self, RE::TESForm* a_other)
 	{
-		if (!a_other->As<RE::TESNPC>()) {
+		if (a_self == a_other) {
+			return;  // A self-copy must not invalidate the cached source appearance.
+		}
+		if (!a_other || !a_other->As<RE::TESNPC>()) {
 			func(a_self, a_other);  // This should just NOP, but invoke to be safe
 			return;
 		}
 
 		bool otherNPCSwapped = false;
-		NPCAppearance* otherNPCAppearance = NPCAppearance::GetNPCAppearance(a_other->As<RE::TESNPC>());
+		const auto otherNPCAppearance = NPCAppearance::GetNPCAppearance(a_other->As<RE::TESNPC>());
 		if (otherNPCAppearance) {
 			// Swapper data existed for other NPC, revert to original appearance for the copy
 			if (otherNPCAppearance->isNPCSwapped) {
@@ -50,7 +53,7 @@ struct CopyNPC
 	// Install our hook at the specified address
 	static inline void Install()
 	{
-		stl::write_vfunc<RE::TESNPC, 0, CopyNPC>();
+		stl::write_vfunc<RE::TESNPC, 0, CopyNPC>(REL::ID(24664), "TESNPC::Copy");
 
 		logger::info("CopyNPC hook set");
 	}

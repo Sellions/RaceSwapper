@@ -1,62 +1,96 @@
 #pragma once
 #include "Configuration.h"
+#include "WeightedSelection.h"
 #include "Utils.h"
 
-void ConfigurationDatabase::Initialize() {
+void ConfigurationDatabase::Initialize()
+{
 	logger::info("Reading config APIs...");
-	// TODO: Change this path later?
-	constexpr auto path = L"Data/SKSE/Plugins/RaceSwap";
+	entries.clear();
 
-	if (!std::filesystem::exists(path)) {
-		logger::warn("No RaceSwap folder path to parse!");
+	constexpr auto path = L"Data/SKSE/Plugins/RaceSwap";
+	std::error_code error;
+	std::filesystem::directory_iterator entry(path, error), end;
+	if (error) {
+		logger::warn("Cannot read RaceSwap folder: {}", error.message());
 		return;
 	}
-	for (const auto& entry : std::filesystem::directory_iterator(path)) {
-		// TODO: Certain files can crash when getting the string, add exception handling
-		logger::info("Parsing file {}", entry.path().string().c_str());
-		std::fstream config;
-		config.open(entry.path(), std::ios::in);
-		if (!config.is_open()) {
-			logger::error("Couldn't open file {}", entry.path().string().c_str());
-			continue;
+	std::vector<std::filesystem::path> configPaths;
+	for (; entry != end; entry.increment(error)) {
+		if (error) {
+			break;
 		}
-		std::string line;
-		while (std::getline(config, line)) {
-			auto configEntry = ConfigurationEntry::ConstructNewEntry(line, entry.path().string());
-			if (configEntry) {
-				entries.push_back(configEntry);
-			}
+		std::error_code statusError;
+		if (entry->is_regular_file(statusError) && !statusError) {
+			configPaths.push_back(entry->path());
 		}
 	}
+	if (error) {
+		logger::error("Stopped scanning RaceSwap folder: {}", error.message());
+	}
 
+	std::sort(configPaths.begin(), configPaths.end());
+	for (const auto& configPath : configPaths) {
+		try {
+			const auto utf8 = configPath.u8string();
+			const std::string fileName(utf8.begin(), utf8.end());
+			logger::info("Parsing file {}", fileName);
+			std::ifstream config(configPath);
+			if (!config.is_open()) {
+				logger::error("Couldn't open file {}", fileName);
+				continue;
+			}
+			std::string line;
+			bool firstLine = true;
+			while (std::getline(config, line)) {
+				if (firstLine && line.starts_with("\xEF\xBB\xBF")) {
+					line.erase(0, 3);  // UTF-8 BOM, common in files saved on Windows.
+				}
+				firstLine = false;
+				if (auto configEntry = ConfigurationEntry::ConstructNewEntry(line, fileName)) {
+					entries.emplace_back(configEntry);
+				}
+			}
+			if (config.bad()) {
+				logger::error("I/O error reading config {}", fileName);
+			}
+		} catch (const std::exception& exception) {
+			logger::error("Skipping unreadable config file: {}", exception.what());
+		}
+	}
 	logger::info("Config APIs fully parsed!");
 }
 
-ConfigurationEntry* PickRandomWeightedEntry(std::vector<std::pair<std::uint32_t, ConfigurationEntry*>> a_entries, RE::TESNPC* a_npc)
+ConfigurationEntry* PickRandomWeightedEntry(const std::vector<std::pair<std::uint32_t, ConfigurationEntry*>>& a_entries, RE::TESNPC* a_npc)
 {
 	if (a_entries.empty()) {
 		return nullptr;	
 	}
 	if (a_entries.size() == 1) {
-		return a_entries[0].second;
+		return a_entries[0].first ? a_entries[0].second : nullptr;
 	}
-	std::vector<std::uint32_t> weights(a_entries.size(), 0);
-	weights[0] = a_entries[0].first;
-	for (std::uint32_t i = 1; i < a_entries.size(); i++) {
-		weights[i] = a_entries[i].first + weights[i-1]; 
+	std::vector<std::uint32_t> weights;
+	weights.reserve(a_entries.size());
+	for (const auto& entry : a_entries) {
+		weights.push_back(entry.first);
+	}
+	if (configparse::TotalWeight(weights) == 0) {
+		return nullptr;
 	}
 
-	auto seed = utils::HashForm(a_npc);
-	srand((int) seed);
-	auto index = std::upper_bound(weights.begin(), weights.end(), rand() % weights.back()) - weights.begin();
-	return a_entries[index].second;
+	const auto roll = utils::StableRandom(utils::HashForm(a_npc), 0x52535750);
+	const auto index = configparse::WeightedIndex(weights, roll);
+	return index ? a_entries[*index].second : nullptr;
 }
 
-AppearanceConfiguration* ConfigurationDatabase::GetConfigurationForNPC(RE::TESNPC* a_npc) {
+std::unique_ptr<AppearanceConfiguration> ConfigurationDatabase::GetConfigurationForNPC(RE::TESNPC* a_npc) {
+	if (!a_npc || !a_npc->race) {
+		return nullptr;
+	}
 	std::vector<std::pair<std::uint32_t, ConfigurationEntry*>> matchedEntries;
-	for (auto entry : entries) {
+	for (const auto& entry : entries) {
 		if (entry->MatchesNPC(a_npc)) {
-			matchedEntries.push_back({ entry->entryData.weight, entry });
+			matchedEntries.push_back({ entry->entryData.weight, entry.get() });
 		}
 	}
 
@@ -69,8 +103,11 @@ AppearanceConfiguration* ConfigurationDatabase::GetConfigurationForNPC(RE::TESNP
 	}
 
 	if (!matchedEntries.empty()) {
-		auto config = new AppearanceConfiguration{ 0 };
 		auto matchedEntry = PickRandomWeightedEntry(matchedEntries, a_npc);
+		if (!matchedEntry) {
+			return nullptr;
+		}
+		auto config = std::make_unique<AppearanceConfiguration>();
 		config->otherRace = matchedEntry->entryData.otherRace;
 		config->otherNPC = matchedEntry->entryData.otherNPC;
 		// Setup config to match vampire/non-vampire NPC to vampire/non-vampire race counterpart

@@ -6,6 +6,9 @@ struct HeightHook
 {
 	static float thunk(RE::TESNPC* a_self)
 	{
+		if (!a_self) {
+			return 0.0F;
+		}
 		if (utils::IsRaceWerewolfOrVampire(a_self->GetRace())) {
 			// Ignore werewolve and vampire form
 			return OrigRaceLogic(a_self, a_self->GetRace());
@@ -39,9 +42,9 @@ struct HeightHook
 	// Install our hook at the specified address
 	static inline void Install()
 	{
-		REL::Relocation<std::uintptr_t> target{ REL::VariantID(24256, 24763, 0x375F90) };
+		REL::Relocation<std::uintptr_t> target{ REL::ID(24763) };
+		stl::require_bytes(target.address(), { 0x48, 0x89, 0x5C, 0x24, 0x08 }, "Height");
 
-		SKSE::AllocTrampoline(0x14);
 		SKSE::GetTrampoline().write_branch<5>(target.address(), thunk);
 
 		logger::info("HeightHook set at address {:x}", target.address());

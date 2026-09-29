@@ -24,7 +24,7 @@ void Settings::Load()
 	get_value(ini, Features::kDebugLogging, false, section, "bDebugLogging", "; Enable debug logging. WARNING: Debug logs are quite spammy when loading lots of NPCs");
 
 	#ifdef _DEBUG 
-		Settings::GetSingleton()->features.set(Settings::Features::kDebugLogging)
+		features.set(Features::kDebugLogging);
 	#endif
 
 	ini.SaveFile(path);

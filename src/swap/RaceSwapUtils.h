@@ -1,6 +1,6 @@
 #pragma once
 #include "PCH.h"
-#include <random>
+#include <optional>
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -9,19 +9,21 @@
 namespace raceutils
 {
 	template <class T>
-	T random_pick(std::vector<T> item_list, size_t rand)
+	T random_pick(const std::vector<T>& a_items, std::size_t a_random)
 	{
-		if (item_list.empty())
-			return 0;
-		return item_list[rand % item_list.size()];
+		if (a_items.empty()) {
+			return T{};
+		}
+		return a_items[a_random % a_items.size()];
 	}
 
 	template <class T>
-	T random_pick(RE::BSTArray<T> item_list, size_t rand)
+	T random_pick(const RE::BSTArray<T>& a_items, std::size_t a_random)
 	{
-		if (item_list.empty())
-			return 0;
-		return item_list[rand % item_list.size()];
+		if (a_items.empty()) {
+			return T{};
+		}
+		return a_items[a_random % a_items.size()];
 	}
 
 	using HDPTData = std::tuple<std::uint32_t, std::uint32_t, std::uint32_t>;
@@ -36,18 +38,21 @@ namespace raceutils
 
 	_likelihood_t _match(HDPTData dst, HDPTData src);
 
-	std::vector<RE::BGSHeadPart*> MatchHDPTData(HDPTData dst, std::vector<HeadpartData> src_hdpts);
+	std::vector<RE::BGSHeadPart*> MatchHDPTData(HDPTData dst, const std::vector<HeadpartData>& src_hdpts);
 
 	SkinTextureData ExtractKeywords(RE::BGSTextureSet* hdpt);
 
 	_likelihood_t _match(SkinTextureData dst, SkinTextureData src);
-	std::vector<RE::BGSTextureSet*> MatchSkinTextureData(SkinTextureData dst, std::vector<RE::BGSTextureSet*> src_hdpts, std::vector<SkinTextureData> src_data);
+	std::vector<RE::BGSTextureSet*> MatchSkinTextureData(
+		SkinTextureData dst,
+		const std::vector<RE::BGSTextureSet*>& src_hdpts,
+		const std::vector<SkinTextureData>& src_data);
 
 	std::string GetHeadPartTypeAsName(RE::BGSHeadPart::HeadPartType a_type);
 
 	RE::BGSColorForm* GetClosestColorForm(RE::BGSColorForm* a_colorForm, RE::BSTArray<RE::BGSColorForm*>* a_colors);
 
-	std::uint16_t GetClosestPresetIdx(RE::Color a_color, RE::TESRace::FaceRelatedData::TintAsset::Presets a_presets);
+	std::optional<std::uint16_t> GetClosestPresetIdx(RE::Color a_color, const RE::TESRace::FaceRelatedData::TintAsset::Presets& a_presets);
 
 	/* 
 	Class for random number generation based on a TESForm.
@@ -61,44 +66,41 @@ namespace raceutils
 	class RandomGen
 	{
 	public:
-		RandomGen(RE::TESForm* a_item_seed) :
-			form_seed(a_item_seed)
-		{
-			_hash_seed = utils::HashForm(form_seed);
-			_random_num = _hash_seed;
-		}
+		explicit RandomGen(RE::TESForm* a_item_seed) :
+			_hash_seed(utils::HashForm(a_item_seed))
+		{}
 
-		inline const size_t GetHashSeed() const {
+		[[nodiscard]] size_t GetHashSeed() const {
 			return _hash_seed;
 		}
 
 		//@brief Get the Nth random number generated from the hash seed.
-		size_t GetStableRandom(std::uint32_t n_th_random = 1){
-			_random_num = _hash_seed;
-			for (std::uint32_t i = 0; i < n_th_random; i++) {
-				GetNext();
+		size_t GetStableRandom(std::uint32_t n_th_random = 1)
+		{
+			if (n_th_random == 0) {
+				_stream = 0;
+				return _hash_seed;
 			}
-			return _random_num;
+			_stream = n_th_random;
+			return static_cast<size_t>(utils::StableRandom(_hash_seed, n_th_random - 1));
 		}
 
 		//@brief Get the next random number generated from the previous random number.
-		size_t GetNext(){
-			srand((int) _random_num);
-			_random_num = rand();
-			srand(clock());
-			return _random_num;
+		size_t GetNext()
+		{
+			return static_cast<size_t>(utils::StableRandom(_hash_seed, _stream++));
 		}
 
 		//@brief Get the Nth random number generated from the hash seed.
-		size_t operator()(unsigned int n_th_random) {
+		size_t operator()(unsigned int n_th_random)
+		{
 			return GetStableRandom(n_th_random);
 		}
 
 	private:
-		RandomGen();
+		RandomGen() = delete;
 
-		RE::TESForm* form_seed;
 		size_t _hash_seed;
-		size_t _random_num;
+		std::uint64_t _stream{ 0 };
 	};
 }

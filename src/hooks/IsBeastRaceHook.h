@@ -6,7 +6,7 @@ struct IsBeastRaceHook
 {
 	static bool thunk(RE::Actor* a_self, RE::BGSKeyword* a_keyword)
 	{
-		if (!a_keyword || a_keyword->formID != constants::Keyword_IsBeastRace) {
+		if (!a_self || !a_keyword || a_keyword->formID != constants::Keyword_IsBeastRace) {
 			return func(a_self, a_keyword);
 		}
 		auto appearance = NPCAppearance::GetOrCreateNPCAppearance(a_self->GetActorBase());
@@ -14,7 +14,7 @@ struct IsBeastRaceHook
 		if (appearance && appearance->isNPCSwapped) {
 			return appearance->alteredNPCData.isBeastRace;
 		}
-		return race->HasKeyword(a_keyword);
+		return race ? race->HasKeyword(a_keyword) : func(a_self, a_keyword);
 	}
 
 	static inline REL::Relocation<decltype(thunk)> func;
@@ -24,7 +24,7 @@ struct IsBeastRaceHook
 	// Install our hook at the specified address
 	static inline void Install()
 	{
-		stl::write_vfunc<RE::Character, 0, IsBeastRaceHook>();
+		stl::write_vfunc<RE::Character, 0, IsBeastRaceHook>(REL::ID(37183), "Character::HasKeyword");
 
 		logger::info("IsBeastRace hook set");
 	}

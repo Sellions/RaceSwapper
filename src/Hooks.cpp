@@ -35,7 +35,12 @@ void hook::InstallHooks()
 	HeightHook::Install();
 	SetRaceHook::Install();
 	HasOverlaysHook::Install();
-	RE::ScriptEventSourceHolder::GetSingleton()->AddEventSink(new HandleFormDelete());
+	static HandleFormDelete formDeleteSink;
+	if (const auto eventSource = RE::ScriptEventSourceHolder::GetSingleton()) {
+		eventSource->AddEventSink(std::addressof(formDeleteSink));
+	} else {
+		stl::report_and_fail("RaceSwapper could not register its form-delete event sink.");
+	}
 	CopyFromTemplate::Install();
 	CopyNPC::Install();
 	DtorNPC::Install();

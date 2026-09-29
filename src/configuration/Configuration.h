@@ -1,12 +1,13 @@
 #pragma once
+#include <memory>
 #include <utility>
 #include "ConfigurationEntry.h"
 
 struct AppearanceConfiguration
 {
-	RE::TESNPC* otherNPC;
-	RE::TESRace* otherRace;
-	RE::SEX otherSex = RE::SEX::kNone;
+	RE::TESNPC* otherNPC{ nullptr };
+	RE::TESRace* otherRace{ nullptr };
+	RE::SEX otherSex{ RE::SEX::kNone };
 	std::string entry;
 	std::string file;
 };
@@ -56,9 +57,8 @@ public:
 	// Load entries from the various entry files
 	void Initialize();
 
-	AppearanceConfiguration* GetConfigurationForNPC(RE::TESNPC* a_npc);
+	std::unique_ptr<AppearanceConfiguration> GetConfigurationForNPC(RE::TESNPC* a_npc);
 
 private:
-	std::vector<ConfigurationEntry*> entries;
+	std::vector<std::unique_ptr<ConfigurationEntry>> entries;
 };
-

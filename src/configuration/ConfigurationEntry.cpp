@@ -1,62 +1,12 @@
 #pragma once
 #include "ConfigurationEntry.h"
+#include "ConfigParsing.h"
 #include "Utils.h"
 #include "MergeMapperPluginAPI.h"
 
-// https://codereview.stackexchange.com/questions/40124/trim-white-space-from-string
-std::string trimLine(std::string a_line) {
-	if (0 != a_line.size())  //if the size is 0
-	{
-		std::string wspc(" \t\f\v\n\r");  // These are the whitespaces
-		//finding the last valid character
-		std::string::size_type posafter = a_line.find_last_not_of(wspc);
-		//finding the first valid character
-		std::string::size_type posbefore = a_line.find_first_not_of(wspc);
-
-		if ((-1 < (int)posafter) && (-1 < (int)posbefore))  //Just Wsp
-		{
-			std::string NoSpaceToken;
-			// Cut off the outside parts of found positions
-			NoSpaceToken = a_line.substr(posbefore, ((posafter + 1) - posbefore));
-			return NoSpaceToken;
-		}
-	}
-
-	return a_line;
-}
-
-bool IsValidEntry(std::string a_line) {
-	auto parsedLine = std::string(a_line);
-	// Remove the whitespace
-	parsedLine.erase(remove(parsedLine.begin(), parsedLine.end(), ' '), parsedLine.end());
-	if (parsedLine.empty()) {
-		return false;
-	}
-
-	auto matchIdx = a_line.find("match=");
-	auto swapIdx = a_line.find("swap=");
-	auto excludeIdx = a_line.find("exclude=");
-
-	if (matchIdx == std::string::npos) {
-		logger::error("line: \"{}\" is missing a 'match=' line and cannot be parsed!", a_line);
-		return false;
-	}
-
-	if (swapIdx == std::string::npos) {
-		logger::error("line: \"{}\" is missing a 'swap=' line and cannot be parsed!", a_line);
-		return false;
-	}
-
-	if (swapIdx && swapIdx < matchIdx) {
-		logger::error("line: \"{}\" has a swap line that is before match! The order must be 'match=... swap=... exclude=...!", a_line);
-		return false;
-	}
-
-	if (excludeIdx != std::string::npos && excludeIdx < swapIdx) {
-		logger::error("line: \"{}\" has an exclude line that is before swap! The order must be 'match=... swap=... exclude=...", a_line);
-	}
-
-	return true;
+std::string trimLine(std::string a_line)
+{
+	return std::string(configparse::Trim(a_line));
 }
 
 template <class T>
@@ -71,15 +21,25 @@ T* GetFormFromString(std::string line) {
 		return nullptr;
 	}
 
-	auto plugin = line.substr(line.find('~') + 1);
-	RE::FormID formID = std::stoul(line.substr(0, line.find('~')), nullptr, 16);
+	auto plugin = trimLine(line.substr(line.find('~') + 1));
+	const auto parsedID = configparse::Unsigned(line.substr(0, line.find('~')), 16);
+	if (!parsedID || plugin.empty()) {
+		logger::error("Invalid form reference: {}", line);
+		return nullptr;
+	}
+	RE::FormID formID = *parsedID;
 	if (g_mergeMapperInterface) {
 		auto mergeForm = g_mergeMapperInterface->GetNewFormID(plugin.c_str(), formID);
+		if (!mergeForm.first) {
+			logger::error("MergeMapper returned no plugin for {}", line);
+			return nullptr;
+		}
 		plugin = mergeForm.first;
 		formID = mergeForm.second;
 	}
 
-	form = RE::TESDataHandler::GetSingleton()->LookupForm(formID, plugin);
+	const auto dataHandler = RE::TESDataHandler::GetSingleton();
+	form = dataHandler ? dataHandler->LookupForm(formID, plugin) : nullptr;
 	if (form == nullptr) {
 		logger::error("invalid form ID: {}", line);
 		return nullptr;
@@ -95,16 +55,6 @@ RE::TESForm* GetFormFromString(std::string line)
 {
 	return GetFormFromString<RE::TESForm>(line);
 }
-
-std::uint32_t GetPercentageFromString(std::string line)
-{
-	if (line.find('%') != std::string::npos) {
-		auto percent = std::stoul(line.substr(0, line.find('%')), nullptr, 10);
-		return (std::uint32_t) max(0, min(100, percent));
-	}
-
-	return (std::uint32_t) -1;
-};
 
 RE::SEX GetSexFromString(std::string line) {
 	std::transform(line.begin(), line.end(),
@@ -129,6 +79,7 @@ bool ConstructExcludesData(std::string a_line, ConfigurationEntry::EntryData* a_
 	line.erase(0, match.size());
 	auto filters = utils::split_string(line, '|');
 	for (auto& entry : filters) {
+		entry = trimLine(entry);
 		if (auto sex = GetSexFromString(entry); sex != RE::SEX::kNone) {
 			a_data->excludedSexes.insert(sex);
 		} else if(auto form = GetFormFromString(entry); form && form->Is(RE::FormType::NPC)) {
@@ -137,6 +88,9 @@ bool ConstructExcludesData(std::string a_line, ConfigurationEntry::EntryData* a_
 			a_data->excludedRaces.insert(form->As<RE::TESRace>());
 		} else if (form && form->Is(RE::FormType::Faction)) {
 			a_data->excludedFactions.insert(form->As<RE::TESFaction>());
+		} else {
+			// An unresolved exclusion must invalidate the rule, not widen its match.
+			return false;
 		}
 	}
 
@@ -153,8 +107,9 @@ bool ConstructMatchData(std::string a_line, ConfigurationEntry::EntryData* a_dat
 	bool hasValidData = true;
 
 	for (auto& entry : filters) {
-		if (auto percent = GetPercentageFromString(entry); percent != (std::uint32_t) -1) {
-			a_data->probability = percent;
+		entry = trimLine(entry);
+		if (auto percent = configparse::Percentage(entry); percent) {
+			a_data->probability = *percent;
 		} else if (auto sex = GetSexFromString(entry); sex != RE::SEX::kNone) {
 			a_data->sexMatch = sex;
 		} else if (auto form = GetFormFromString(entry); form && form->Is(RE::FormType::NPC)) {
@@ -186,11 +141,14 @@ bool ConstructSwapData(std::string a_line, ConfigurationEntry::EntryData* a_data
 	bool hasValidData = true;
 
 	for (auto& entry : filters) {
+		entry = trimLine(entry);
 		logger::debug("Parsing for swap \"{}\"", entry);
 		if (auto sex = GetSexFromString(entry); sex != RE::SEX::kNone) {
 			a_data->otherSex = sex;
-		} else if (auto percent = GetPercentageFromString(entry); percent != (std::uint32_t) -1) {
-			a_data->weight = percent;
+		} else if (auto percent = configparse::Percentage(entry); percent) {
+			a_data->weight = *percent;
+		} else if (auto weight = configparse::Unsigned(entry); weight) {
+			a_data->weight = std::min(*weight, 100U);
 		} else if (auto form = GetFormFromString(entry); form && form->Is(RE::FormType::NPC)) {
 			a_data->otherNPC = form->As<RE::TESNPC>();
 		} else if (form && form->Is(RE::FormType::Race)) {
@@ -201,7 +159,7 @@ bool ConstructSwapData(std::string a_line, ConfigurationEntry::EntryData* a_data
 	}
 
 	// Enforce swap has an NPC/race/sex to actually swap to
-	if (!a_data->otherNPC && !a_data->otherRace && !a_data->otherSex) {
+	if (!a_data->otherNPC && !a_data->otherRace && a_data->otherSex == RE::SEX::kNone) {
 		hasValidData = false;
 	}
 
@@ -211,39 +169,24 @@ bool ConstructSwapData(std::string a_line, ConfigurationEntry::EntryData* a_data
 ConfigurationEntry* ConfigurationEntry::ConstructNewEntry(std::string a_line, std::string a_file)
 {
 	auto parsingLine = std::string(a_line);
-	ConfigurationEntry::EntryData entryData{ 0 };
+	ConfigurationEntry::EntryData entryData{};
 
 	/////////// Default Values /////////////
 	entryData.weight = 10;
 	entryData.probability = 100;
 	////////////////////////////////////////
 
-	// Strip the comments and the whitespace
-	if (parsingLine.find('#') != std::string::npos) {
-		parsingLine.erase(parsingLine.find('#'));
-	}
-
-	if (!IsValidEntry(parsingLine)) {
-		// Line is invalid, or was just a comment. Either way, don't parse it
+	const auto sections = configparse::SplitSections(parsingLine);
+	if (!sections) {
+		if (!configparse::Trim(std::string_view(parsingLine).substr(0, parsingLine.find('#'))).empty()) {
+			logger::error("Invalid rule in {}: {}. Expected match=... swap=... [exclude=...]", a_file, a_line);
+		}
 		return nullptr;
 	}
 	logger::info("Parsing: {}", a_line);
-
-	// TODO: Make this case insensitive
-	auto matchIndex = parsingLine.find("match=");
-	auto swapIndex = parsingLine.find("swap=");
-	auto excludeIndex = parsingLine.find("exclude=");
-
-	auto matchLine = parsingLine.substr(matchIndex, swapIndex - matchIndex);
-	std::string swapLine;
-	std::string excludeLine;
-	if (excludeIndex == std::string::npos) {
-		swapLine = parsingLine.substr(swapIndex);
-		excludeLine = "";
-	} else {
-		swapLine = parsingLine.substr(swapIndex, excludeIndex - swapIndex);
-		excludeLine = parsingLine.substr(excludeIndex);
-	}
+	const auto matchLine = std::string(sections->match);
+	const auto swapLine = std::string(sections->swap);
+	const auto excludeLine = std::string(sections->exclude);
 
 	bool success = false;
 	try {
@@ -263,10 +206,10 @@ ConfigurationEntry* ConfigurationEntry::ConstructNewEntry(std::string a_line, st
 		logger::debug("Converted entry: matchNPC={:x}", entryData.npcMatch ? entryData.npcMatch->formID : 0);
 		logger::debug("Converted entry: matchRace={:x}", entryData.raceMatch ? entryData.raceMatch->formID : 0);
 		logger::debug("Converted entry: matchFaction={:x}", entryData.factionMatch ? entryData.factionMatch->formID : 0);
-		logger::debug("Converted entry: matchSex={}", entryData.sexMatch);
+		logger::debug("Converted entry: matchSex={}", std::to_underlying(entryData.sexMatch));
 		logger::debug("Converted entry: swapNPC={:x}", entryData.otherNPC ? entryData.otherNPC->formID : 0);
 		logger::debug("Converted entry: swapRace={:x}", entryData.otherRace ? entryData.otherRace->formID : 0);
-		logger::debug("Converted entry: swapSex={}", entryData.otherSex);
+		logger::debug("Converted entry: swapSex={}", std::to_underlying(entryData.otherSex));
 		return newEntry;
 	}
 	logger::error("line: \"{}\" is invalid", a_line);
@@ -274,6 +217,9 @@ ConfigurationEntry* ConfigurationEntry::ConstructNewEntry(std::string a_line, st
 }
 
 bool ConfigurationEntry::MatchesNPC(RE::TESNPC* a_npc) {
+	if (!a_npc || !a_npc->race || (entryData.otherNPC && !entryData.otherNPC->race)) {
+		return false;
+	}
 
 	auto nonVampireRace = utils::AsNonVampireRace(a_npc->race);
 
@@ -305,12 +251,10 @@ bool ConfigurationEntry::MatchesNPC(RE::TESNPC* a_npc) {
 	isMatch = isMatch && npcCanSwap;
 
 	if (isMatch) {
-		// TODO: Hash should include the entry itself to prevent all entries with the same weight
-		// matching the same exact NPCs
-		srand((int) utils::HashForm(a_npc));
-		isMatch = ((std::uint32_t) rand() % 100) < entryData.probability;
+		const auto entrySeed = utils::HashString(entryData.file) ^ utils::HashString(entryData.entry);
+		const auto roll = utils::StableRandom(utils::HashForm(a_npc) ^ entrySeed);
+		isMatch = (roll % 100) < entryData.probability;
 	}
 
 	return isMatch;
 }
-

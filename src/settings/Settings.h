@@ -11,11 +11,11 @@ public:
 	{
 		kNone = 0,
 		kPlaythroughRandomization = 1 << 0,
-		kStrictHeadPartMatching = 2 << 0,
-		kDebugLogging = 3 << 0,
+		kStrictHeadPartMatching = 1 << 1,
+		kDebugLogging = 1 << 2,
 	};
 
-	stl::enumeration<Features, std::uint32_t> features;
+	REX::EnumSet<Features, std::uint32_t> features;
 
 private:
 	void get_value(CSimpleIniA& a_ini, Features a_value, bool a_default, const char* a_section, const char* a_key, const char* a_comment)

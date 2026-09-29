@@ -5,7 +5,7 @@
 struct LoadNPC
 {
 	// Revert NPC data when loading NPC. Erase and treat NPC as brand new
-	static void thunk(RE::TESNPC* a_self, std::uint64_t unkLoadStruct)
+	static void thunk(RE::TESNPC* a_self, RE::BGSLoadFormBuffer* a_buffer)
 	{
 		logger::info("Erasing NPC for load game: {:x}", a_self->formID);
 		auto appearance = NPCAppearance::GetNPCAppearance(a_self);
@@ -14,7 +14,7 @@ struct LoadNPC
 		}
 
 		NPCAppearance::EraseNPCAppearance(a_self);
-		func(a_self, unkLoadStruct);
+		func(a_self, a_buffer);
 
 		//appearance = NPCAppearance::GetOrCreateNPCAppearance(a_self);
 		//if (appearance) {
@@ -30,7 +30,7 @@ struct LoadNPC
 	// Install our hook at the specified address
 	static inline void Install()
 	{
-		stl::write_vfunc<RE::TESNPC, 0, LoadNPC>();
+		stl::write_vfunc<RE::TESNPC, 0, LoadNPC>(REL::ID(24778), "TESNPC::LoadGame");
 
 		logger::info("LoadNPC hook set");
 	}
