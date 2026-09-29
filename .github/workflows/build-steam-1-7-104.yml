@@ -48,7 +48,12 @@ jobs:
           & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
 
       - name: Configure Release
-        run: cmake --preset RaceSwapper
+        shell: pwsh
+        run: |
+          # CMake writes the toolchain path into generated scripts. Normalize the
+          # GitHub runner's Windows path so backslashes are not parsed as escapes.
+          $env:VCPKG_ROOT = $env:VCPKG_ROOT.Replace('\', '/')
+          cmake --preset RaceSwapper
 
       - name: Build Release
         run: cmake --build build --config Release --parallel
