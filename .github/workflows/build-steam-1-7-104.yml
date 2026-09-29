@@ -43,7 +43,7 @@ jobs:
       - name: Bootstrap pinned vcpkg
         shell: pwsh
         run: |
-          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
+          git clone https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
           git -C "$env:VCPKG_ROOT" checkout ee12231b20c95013c6638d845d04c91559a1d1ff
           & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
 
