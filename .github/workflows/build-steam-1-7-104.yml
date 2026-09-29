@@ -33,7 +33,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     env:
-      VCPKG_ROOT: ${{ runner.temp }}\vcpkg
+      VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
     steps:
       - name: Check out source and dependencies
         uses: actions/checkout@v4
