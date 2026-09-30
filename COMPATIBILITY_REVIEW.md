@@ -1,19 +1,19 @@
 # RaceSwapper: Steam 1.7.104 compatibility review
 
-Reviewed 29 September 2026 (UTC).
+Reviewed 30 September 2026 (UTC).
 
 ## Outcome
 
-The source port to **Steam SkyrimSE 1.7.104.0** is complete at the offline
-verification level. Runtime metadata is restricted to 1.7.104, the dependency
+The port to **Steam SkyrimSE 1.7.104.0** is complete through reproducible Windows
+binary verification. Runtime metadata is restricted to 1.7.104, the dependency
 stack understands Address Library format 5, and every installed native hook is
 guarded by exact byte or target validation derived from the supplied executable.
 
-It is **not yet a tested binary release**. This Linux workspace has no MSVC or
-Windows SDK, so no DLL was produced, and Skyrim was not launched. The included
-GitHub Actions workflow provides the remaining reproducible Windows build and
-package step; an actual run plus the in-game checklist below are still required
-before publishing the DLL as release-ready.
+GitHub Actions run `36649524555` completed the portable tests, Visual Studio 2022
+Release build, install staging, archive, checksum, and artifact upload. The
+resulting x64 DLL and its SKSE metadata were inspected successfully. Skyrim was
+not launched, so the remaining in-game checklist below is still required before
+calling this a fully game-tested release.
 
 Base repository: [Nightfallstorm/RaceSwapper](https://github.com/Nightfallstorm/RaceSwapper),
 commit `ce58ac4d4c19e38dc05a5e10a5a935d88594d3b3` (version 1.5.8).
@@ -23,7 +23,7 @@ Working branch: `update/steam-1.7.104-audit` (version 1.6.0).
 
 | Environment | Status |
 | --- | --- |
-| Steam SkyrimSE 1.7.104.0 | Targeted and byte-audited; Windows build and game test pending |
+| Steam SkyrimSE 1.7.104.0 | Targeted, byte-audited, and Windows-built; game test pending |
 | SKSE 2.3.1 + `versionlib-1-7-104-0.bin` | Required |
 | Earlier/later Steam runtimes | Rejected by plugin metadata and runtime check |
 | GOG, Epic, or Skyrim VR | Unsupported |
@@ -122,7 +122,8 @@ and has `sizeof == 0x10`.
 | Address/LeakSanitizer | Not claimed; this sandbox denies the `/proc` access LeakSanitizer needs at startup |
 | Python verifier syntax and JSON/YAML parsing | Passed |
 | Patch whitespace | Passed |
-| MSVC/Windows DLL build | Not available in this workspace; automated workflow added but not run here |
+| MSVC/Windows DLL build | Passed with Visual Studio 2022 in GitHub Actions run `36649524555` |
+| DLL and package inspection | Passed: PE32+ x64, required SKSE exports, version 1.6.0.0, runtime 1.7.104.0, minimum SKSE 2.3.1.0, system-library imports, ZIP integrity, and SHA-256 |
 | Skyrim startup/gameplay/save testing | Not performed |
 
 Portable tests cover production parser, weighted-selection, and deterministic
@@ -131,19 +132,17 @@ ownership.
 
 ## Required Windows and in-game acceptance test
 
-1. Run the checked-in Windows workflow and confirm both jobs pass and the ZIP
-   contains `Data/SKSE/Plugins/RaceSwapper.dll`.
-2. Use a separate mod-manager profile containing Steam 1.7.104, SKSE 2.3.1,
+1. Use a separate mod-manager profile containing Steam 1.7.104, SKSE 2.3.1,
    matching Address Library, powerofthree's Tweaks, RaceSwapper, and no DAV/DDNG.
-3. Confirm startup reaches `Loaded Plugin` with no patch-mismatch or unsupported
+2. Confirm startup reaches `Loaded Plugin` with no patch-mismatch or unsupported
    runtime error in `RaceSwapper.log`.
-4. Exercise race, NPC, male/female, custom-race, armor/skin, creature movement,
+3. Exercise race, NPC, male/female, custom-race, armor/skin, creature movement,
    vampire/werewolf transformation, and missing-face-data cases.
-5. Save and reload without relaunching, then relaunch and load again. Check NPC
+4. Save and reload without relaunching, then relaunch and load again. Check NPC
    appearance stability, inventory icons, animation graphs, and tint/face/body
    consistency.
-6. Test a new game, a disposable existing save, revert/reset paths, and mod
+5. Test a new game, a disposable existing save, revert/reset paths, and mod
    removal only on a disposable save.
 
-Until that checklist passes, publish the source as a **1.7.104 port candidate**,
-not a fully game-tested binary release.
+Until that checklist passes, treat the package as a **1.7.104 binary port
+candidate**, not a fully game-tested release.

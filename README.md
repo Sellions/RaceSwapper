@@ -12,11 +12,12 @@ the game's 12-byte tint-layer allocation were checked against the supplied
 also validates the expected instructions at startup and aborts instead of
 patching an unknown executable.
 
-This workspace could not produce a Windows DLL or launch Skyrim because it has
-no MSVC/Windows SDK or game runtime. Treat the port as ready for a Windows build
-and in-game validation, not as a tested binary release. See
-[COMPATIBILITY_REVIEW.md](COMPATIBILITY_REVIEW.md) for the evidence and remaining
-test checklist.
+A clean Windows Server 2022 / Visual Studio 2022 GitHub Actions build completed
+successfully on 30 September 2026. The generated x64 DLL, SKSE exports, embedded
+version/runtime metadata, archive layout, and SHA-256 checksum were inspected.
+Skyrim has not been launched with this build, so treat it as a binary port
+candidate pending the in-game validation checklist in
+[COMPATIBILITY_REVIEW.md](COMPATIBILITY_REVIEW.md).
 
 This build intentionally supports neither **Dynamic Armor Variants** nor
 **Devious Devices NG**. It fails fast if either DLL is detected. The ordinary
