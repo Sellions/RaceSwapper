@@ -148,7 +148,7 @@ bool ConstructSwapData(std::string a_line, ConfigurationEntry::EntryData* a_data
 		} else if (auto percent = configparse::Percentage(entry); percent) {
 			a_data->weight = *percent;
 		} else if (auto weight = configparse::Unsigned(entry); weight) {
-			a_data->weight = std::min(*weight, 100U);
+			a_data->weight = (std::min)(*weight, 100U);
 		} else if (auto form = GetFormFromString(entry); form && form->Is(RE::FormType::NPC)) {
 			a_data->otherNPC = form->As<RE::TESNPC>();
 		} else if (form && form->Is(RE::FormType::Race)) {

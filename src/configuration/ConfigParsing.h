@@ -77,6 +77,6 @@ namespace configparse
 			return std::nullopt;
 		}
 		const auto value = Unsigned(text.substr(0, text.size() - 1));
-		return value ? std::optional{ std::min(*value, 100U) } : std::nullopt;
+		return value ? std::optional{ (std::min)(*value, 100U) } : std::nullopt;
 	}
 }

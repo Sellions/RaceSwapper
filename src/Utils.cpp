@@ -44,7 +44,7 @@ namespace utils
 		std::string playthroughID = "";
 		if (Settings::GetSingleton()->features.any(Settings::Features::kPlaythroughRandomization)) {
 			if (const auto manager = RE::BGSSaveLoadManager::GetSingleton()) {
-				playthroughID = std::to_string(manager->currentPlayerID);
+				playthroughID = std::to_string(manager->currentCharacterID);
 			}
 		}
 
@@ -301,7 +301,7 @@ namespace utils
 			return found != allForms->end() && found->second ? found->second->As<RE::TESRace>() : nullptr;
 		};
 
-		const auto count = std::min({ raceList->scriptAddedFormCount, keyFormList->size(), valueFormList->size() });
+		const auto count = (std::min)({ raceList->scriptAddedFormCount, keyFormList->size(), valueFormList->size() });
 		for (std::uint32_t i = 0; i < count; i++) {
 			auto key = lookupRace((*keyFormList)[i]);
 			auto value = lookupRace((*valueFormList)[i]);
