@@ -57,7 +57,8 @@ checking any patch site.
 - The vcpkg manifest matches CommonLib's baseline and dependency versions.
 - Plugin metadata declares version 1.6.0, requires SKSE 2.3.1, and lists only
   `RUNTIME_SSE_1_7_104` as compatible.
-- CMake can stage an installable `Data/SKSE/Plugins/RaceSwapper.dll` layout.
+- CMake stages an installable DLL at `Data/SKSE/Plugins/RaceSwapper.dll` and
+  the required Papyrus interface at `Data/Scripts/RaceSwapper.pex`.
 - `.github/workflows/build-steam-1-7-104.yml` performs portable regressions,
   builds Release with Visual Studio 2022, and packages a ZIP plus SHA-256.
 
@@ -123,7 +124,7 @@ and has `sizeof == 0x10`.
 | Python verifier syntax and JSON/YAML parsing | Passed |
 | Patch whitespace | Passed |
 | MSVC/Windows DLL build | Passed with Visual Studio 2022 in GitHub Actions run `36649524555` |
-| DLL and package inspection | Passed: PE32+ x64, required SKSE exports, version 1.6.0.0, runtime 1.7.104.0, minimum SKSE 2.3.1.0, system-library imports, ZIP integrity, and SHA-256 |
+| DLL and package inspection | Passed: PE32+ x64, required SKSE exports, version 1.6.0.0, runtime 1.7.104.0, minimum SKSE 2.3.1.0, system-library imports, DLL and Papyrus-script layout, ZIP integrity, and SHA-256 |
 | Skyrim startup/gameplay/save testing | Not performed |
 
 Portable tests cover production parser, weighted-selection, and deterministic

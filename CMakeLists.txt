@@ -169,6 +169,11 @@ install(
 )
 
 install(
+	FILES scripts/RaceSwapper.pex
+	DESTINATION Data/Scripts
+)
+
+install(
 	FILES
 		LICENSE
 		README.md

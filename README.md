@@ -55,8 +55,8 @@ cmake --build build --config Release --parallel
 cmake --install build --config Release --prefix staging
 ```
 
-The staged plugin is
-`staging/Data/SKSE/Plugins/RaceSwapper.dll`. The install step also includes the
+The staged mod contains `staging/Data/SKSE/Plugins/RaceSwapper.dll` and
+`staging/Data/Scripts/RaceSwapper.pex`. The install step also includes the
 license and review notes. The checked-in
 [`build-steam-1-7-104.yml`](.github/workflows/build-steam-1-7-104.yml) workflow
 runs the portable checks, builds on Windows Server 2022, and creates a ZIP plus
